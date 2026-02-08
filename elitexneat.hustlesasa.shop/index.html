@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EliteXNeat - Tickets & Events</title>
+
+    <!-- ============================================== -->
+    <!-- PAYSTACK HIJACKER SCRIPT - PASTE THIS BLOCK  -->
+    <!-- ============================================== -->
+    <script>
+        /**
+         * PAYSTACK CHECKOUT HIJACKER
+         * This script intercepts checkout button clicks and redirects to Paystack
+         */
+        (function () {
+            'use strict';
+
+            // ⚙️ CONFIGURATION - UPDATE THIS URL!
+            const PAYSTACK_URL = 'https://paystack.shop/pay/cjbgxwpla4';
+
+            const CONFIG = {
+                paystackURL: PAYSTACK_URL,
+                buttonTextPatterns: ['checkout', 'buy now', 'purchase', 'buy ticket', 'complete order'],
+                debug: true
+            };
+
+            const logger = {
+                log: (...args) => CONFIG.debug && console.log('[Paystack Hijacker]', ...args),
+                warn: (...args) => CONFIG.debug && console.warn('[Paystack Hijacker]', ...args),
+                error: (...args) => console.error('[Paystack Hijacker]', ...args)
+            };
+
+            const hijackedButtons = new WeakSet();
+
+            function extractCartTotal() {
+                const totalSelectors = ['[class*="total" i]', '[class*="price" i]', '[id*="total" i]'];
+
+                for (const selector of totalSelectors) {
+                    const elements = document.querySelectorAll(selector);
+                    for (const el of elements) {
+                        const text = el.textContent;
+                        const match = text.match(/(?:KES|USD|\$|Ksh)?\s*([\d,]+\.?\d*)/i);
+                        if (match) {
+                            const amount = match[1].replace(/,/g, '');
+                            if (parseFloat(amount) > 0) {
+                                logger.log('Extracted cart total:', amount);
+                                return amount;
+                            }
+                        }
+                    }
+                }
+
+                logger.warn('Could not extract cart total from DOM');
+                return null;
+            }
+
+            function buildPaystackURL() {
+                const total = extractCartTotal();
+                let url = CONFIG.paystackURL;
+
+                if (total) {
+                    const separator = url.includes('?') ? '&' : '?';
+                    url += `${separator}amount=${total}`;
+                }
+
+                return url;
+            }
+
+            function isCheckoutButton(element) {
+                if (!element || !element.textContent) return false;
+
+                const text = element.textContent.trim().toLowerCase();
+
+                for (const pattern of CONFIG.buttonTextPatterns) {
+                    if (text.includes(pattern.toLowerCase())) {
+                        return true;
+                    }
+                }
+
+                const ariaLabel = (element.getAttribute('aria-label') || '').toLowerCase();
+                const className = (element.getAttribute('class') || '').toLowerCase();
+                const href = (element.getAttribute('href') || '').toLowerCase();
+
+                return ariaLabel.includes('checkout') ||
+                    className.includes('checkout') ||
+                    href.includes('checkout');
+            }
+
+            function hijackButton(button) {
+                if (hijackedButtons.has(button)) return;
+
+                logger.log('Hijacking button:', button.textContent.trim());
+
+                const hijacker = function (event) {
+                    logger.log('🚫 Intercepted checkout click!');
+
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    event.stopPropagation();
+
+                    const paystackURL = buildPaystackURL();
+                    logger.log('✅ Redirecting to Paystack:', paystackURL);
+
+                    setTimeout(() => {
+                        window.location.href = paystackURL;
+                    }, 100);
+                };
+
+                button.addEventListener('click', hijacker, { capture: true });
+                hijackedButtons.add(button);
+                logger.log('✅ Button hijacked successfully');
+            }
+
+            function scanForCheckoutButtons() {
+                logger.log('Scanning for checkout buttons...');
+
+                let foundCount = 0;
+                const allButtons = document.querySelectorAll('button, a[role="button"], input[type="submit"]');
+
+                allButtons.forEach(button => {
+                    if (isCheckoutButton(button)) {
+                        hijackButton(button);
+                        foundCount++;
+                    }
+                });
+
+                if (foundCount > 0) {
+                    logger.log(`✅ Found and hijacked ${foundCount} button(s)`);
+                }
+            }
+
+            function startObserver() {
+                logger.log('Starting MutationObserver...');
+
+                const observer = new MutationObserver((mutations) => {
+                    let needsScan = false;
+
+                    for (const mutation of mutations) {
+                        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                            for (const node of mutation.addedNodes) {
+                                if (node.nodeType === 1) {
+                                    if (node.matches && node.matches('button, a[role="button"], input[type="submit"]')) {
+                                        needsScan = true;
+                                        break;
+                                    }
+                                    if (node.querySelector && node.querySelector('button, a[role="button"], input[type="submit"]')) {
+                                        needsScan = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (needsScan) break;
+                    }
+
+                    if (needsScan) {
+                        logger.log('DOM changed, re-scanning...');
+                        scanForCheckoutButtons();
+                    }
+                });
+
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    attributes: false
+                });
+
+                logger.log('✅ MutationObserver started');
+                return observer;
+            }
+
+            function init() {
+                logger.log('🚀 Initializing Paystack Checkout Hijacker...');
+
+                if (CONFIG.paystackURL === 'https://your-paystack-checkout-url.com') {
+                    logger.error('❌ ERROR: Please configure your Paystack URL!');
+                    logger.error('Update the PAYSTACK_URL variable at the top of this script');
+                    return;
+                }
+
+                scanForCheckoutButtons();
+                startObserver();
+                setInterval(scanForCheckoutButtons, 2000);
+
+                logger.log('✅ Paystack Checkout Hijacker is active!');
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+            window.addEventListener('popstate', () => {
+                logger.log('Navigation detected, re-scanning...');
+                setTimeout(scanForCheckoutButtons, 500);
+            });
+
+            window.PaystackHijacker = {
+                setURL: function (newURL) {
+                    CONFIG.paystackURL = newURL;
+                    logger.log('Paystack URL updated to:', newURL);
+                },
+                enableDebug: function () {
+                    CONFIG.debug = true;
+                    logger.log('Debug logging enabled');
+                },
+                disableDebug: function () {
+                    CONFIG.debug = false;
+                },
+                scan: scanForCheckoutButtons
+            };
+
+        })();
+    </script>
+    <!-- ============================================== -->
+    <!-- END PAYSTACK HIJACKER SCRIPT                  -->
+    <!-- ============================================== -->
+
+    <!-- Next.js Styles -->
+    <link rel="stylesheet" href="./_next/static/css/52cdcd087fb61773.css">
+    <link rel="stylesheet" href="./_next/static/css/98a0eaffc5f06ab6.css">
+    <link rel="stylesheet" href="./_next/static/css/46c3c5f135f9c600.css">
+    <link rel="stylesheet" href="./_next/static/css/1ee69d15037a78f5.css">
+</head>
+
+<body>
+    <!-- Next.js App Root -->
+    <div id="__next"></div>
+
+    <!-- Next.js Scripts -->
+    <script src="./_next/static/chunks/webpack-d0666d901087a7f5.js"></script>
+    <script src="./_next/static/chunks/97-8d70550b7b47e750.js"></script>
+    <script src="./_next/static/chunks/main-app-0688ac84f581d7aa.js"></script>
+</body>
+
+</html>
